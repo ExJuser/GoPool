@@ -1,6 +1,7 @@
 package GoPool
 
 import (
+	"GoPool/internal"
 	"context"
 	"sync"
 )
@@ -20,5 +21,42 @@ type Pool struct {
 }
 
 func NewPool(size int, options ...Option) (*Pool, error) {
-	loadoptions
+	opts := loadOptions(options...)
+	if size <= 0 {
+		size = -1
+	}
+	if expiry := opts.ExpiryDuration; expiry < 0 {
+		return nil, ErrInvalidPoolExpiry
+	} else if expiry == 0 {
+		opts.ExpiryDuration = DefaultCleanIntervalTime
+	}
+
+	if opts.Logger == nil {
+		opts.Logger = defaultLogger
+	}
+	p := &Pool{
+		capacity: int32(size),
+		lock:     internal.NewSpinLockBackoff(),
+		options:  opts,
+	}
+	p.workerCache.New = func() any {
+		return &goWorker{
+			pool: p,
+			task: make(chan func(), workerChanCap()),
+		}
+	}
+	if p.options.PreAlloc {
+		if size == -1 {
+			return nil, ErrInvalidPreAllocSize
+		}
+		p.workers = newWorkerArray(loopQueueType, size)
+	} else {
+		p.workers = newWorkerArray(stackType, 0)
+	}
+	p.cond = sync.NewCond(p.lock)
+
+	var ctx context.Context
+	ctx, p.stopHeartBeat = context.WithCancel(context.Background())
+	go p.purgePeriodically(ctx)
+	return p, nil
 }

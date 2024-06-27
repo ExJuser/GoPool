@@ -18,3 +18,7 @@ type Pool struct {
 	stopHeartBeat context.CancelFunc
 	options       *Options
 }
+
+func NewPool(size int, options ...Option) (*Pool, error) {
+	loadoptions
+}

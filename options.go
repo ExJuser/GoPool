@@ -6,6 +6,14 @@ import (
 
 type Option func(opts *Options)
 
+func loadOptions(options ...Option) *Options {
+	opts := new(Options)
+	for _, option := range options {
+		option(opts)
+	}
+	return opts
+}
+
 type Options struct {
 	ExpiryDuration   time.Duration
 	PreAlloc         bool

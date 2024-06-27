@@ -8,9 +8,12 @@ import (
 
 const maxBackoff = 16 // 最大退避次数
 
-type spinLock uint32
+type (
+	spinLockBackoff uint32
+	spinLock        uint32
+)
 
-func (l *spinLock) Lock() {
+func (l *spinLockBackoff) Lock() {
 	backoff := 1
 	// 尝试使用原子操作将锁从0设置为1，表示加锁成功
 	for !atomic.CompareAndSwapUint32((*uint32)(l), 0, 1) {
@@ -25,10 +28,24 @@ func (l *spinLock) Lock() {
 	}
 }
 
-func (l *spinLock) Unlock() {
+func (l *spinLockBackoff) Unlock() {
 	atomic.StoreUint32((*uint32)(l), 0) //解锁只需原子操作将锁置为0即可
 }
 
-func NewSpinLock() sync.Locker {
+func (l *spinLock) Lock() {
+	for !atomic.CompareAndSwapUint32((*uint32)(l), 0, 1) {
+		runtime.Gosched()
+	}
+}
+
+func (l *spinLock) Unlock() {
+	atomic.StoreUint32((*uint32)(l), 0)
+}
+
+func NewSpinLockBackoff() sync.Locker {
+	return new(spinLockBackoff)
+}
+
+func NewSpinLockOrigin() sync.Locker {
 	return new(spinLock)
 }

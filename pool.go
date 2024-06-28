@@ -186,3 +186,10 @@ func (p *Pool) Reboot() {
 		go p.purgePeriodically(ctx)
 	}
 }
+
+func retrieveWorker() (w *goWorker) {
+	panic("not implemented")
+}
+func revertWorker(worker *goWorker) bool {
+	panic("not implemented")
+}

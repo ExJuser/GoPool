@@ -31,7 +31,7 @@ func newWorkerArray(aType arrayType, size int) workerArray {
 		return newWorkerStack(size)
 	case loopQueueType:
 		return newWorkerLoopQueue(size)
-	default:
+	default: //默认使用栈实现的workerArray
 		return newWorkerStack(size)
 	}
 }

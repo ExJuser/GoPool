@@ -1,3 +1,6 @@
+//go:build !windows
+// +build !windows
+
 package GoPool
 
 import (
@@ -40,4 +43,38 @@ func TestWorkerStack(t *testing.T) {
 	assert.EqualValues(t, 12, q.len(), "Len error")
 	q.retrieveExpiry(time.Second)
 	assert.EqualValues(t, 6, q.len(), "Len error")
+}
+
+func TestSearch(t *testing.T) {
+	q := newWorkerStack(0)
+
+	expiry1 := time.Now()
+
+	_ = q.insert(&goWorker{recycleTime: time.Now()})
+
+	assert.EqualValues(t, 0, q.binarySearch(0, q.len()-1, time.Now()), "index should be 0")
+	assert.EqualValues(t, -1, q.binarySearch(0, q.len()-1, expiry1), "index should be -1")
+
+	expiry2 := time.Now()
+	_ = q.insert(&goWorker{recycleTime: time.Now()})
+
+	assert.EqualValues(t, -1, q.binarySearch(0, q.len()-1, expiry1), "index should be -1")
+
+	assert.EqualValues(t, 0, q.binarySearch(0, q.len()-1, expiry2), "index should be 0")
+
+	assert.EqualValues(t, 1, q.binarySearch(0, q.len()-1, time.Now()), "index should be 1")
+
+	for i := 0; i < 5; i++ {
+		_ = q.insert(&goWorker{recycleTime: time.Now()})
+	}
+
+	expiry3 := time.Now()
+
+	_ = q.insert(&goWorker{recycleTime: expiry3})
+
+	for i := 0; i < 10; i++ {
+		_ = q.insert(&goWorker{recycleTime: time.Now()})
+	}
+
+	assert.EqualValues(t, 7, q.binarySearch(0, q.len()-1, expiry3), "index should be 7")
 }

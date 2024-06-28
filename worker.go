@@ -6,8 +6,12 @@ import (
 )
 
 type goWorker struct {
-	pool        *Pool
-	task        chan func()
+	//回指所属协程池的指针 找到回家的路
+	pool *Pool
+	//这个worker应该完成的任务
+	task chan func()
+	//回收时间 当一个worker被放回协程池后更新
+	//用于定期清理过期的worker：长时间未被使用
 	recycleTime time.Time
 }
 
@@ -16,8 +20,11 @@ func (w *goWorker) run() {
 	go func() {
 		defer func() {
 			w.pool.addRunning(-1)
+			//将worker放回sync.Pool
 			w.pool.workerCache.Put(w)
+			//如果run过程中出现panic 捕获
 			if p := recover(); p != nil {
+				//调用自定义的PanicHandler
 				if ph := w.pool.options.PanicHandler; ph != nil {
 					ph(p)
 				} else {
@@ -27,12 +34,15 @@ func (w *goWorker) run() {
 					w.pool.options.Logger.Printf("worker exits from panic: %s\n", string(buf[:n]))
 				}
 			}
+			//通知唤醒一个向协程池提交任务，因为没有可用worker而陷入阻塞的goroutine
 			w.pool.cond.Signal()
 		}()
+		//不断遍历channel 等待新投递过来的任务
 		for f := range w.task {
 			if f == nil {
 				return
 			}
+			f()
 			if ok := w.pool.revertWorker(w); !ok {
 				return
 			}

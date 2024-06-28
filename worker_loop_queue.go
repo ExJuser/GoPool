@@ -1,6 +1,8 @@
 package GoPool
 
-import "time"
+import (
+	"time"
+)
 
 type loopQueue struct {
 	items            []*goWorker
@@ -69,11 +71,65 @@ func (l *loopQueue) detach() *goWorker {
 }
 
 func (l *loopQueue) retrieveExpiry(duration time.Duration) []*goWorker {
-	//TODO implement me
-	panic("implement me")
+	expiryTime := time.Now().Add(-duration)
+	index := l.binarySearch(expiryTime)
+	if index == -1 {
+		return nil
+	}
+	l.expiry = l.expiry[:0]
+	if l.head <= index {
+		l.expiry = append(l.expiry, l.items[l.head:index+1]...)
+		for i := l.head; i < index+1; i++ {
+			l.items[i] = nil
+		}
+	} else {
+		l.expiry = append(l.expiry, l.items[0:index+1]...)
+		l.expiry = append(l.expiry, l.items[l.head:]...)
+		for i := 0; i < index+1; i++ {
+			l.items[i] = nil
+		}
+		for i := l.head; i < l.size; i++ {
+			l.items[i] = nil
+		}
+	}
+	head := (index + 1) % l.size
+	l.head = head
+	if len(l.expiry) > 0 {
+		l.isFull = false
+	}
+	return l.expiry
+}
+
+func (l *loopQueue) binarySearch(expiryTime time.Time) int {
+	var mid, nlen, basel, tmid int
+	nlen = len(l.items)
+	if l.isEmpty() || expiryTime.Before(l.items[l.head].recycleTime) {
+		return -1
+	}
+	right := (l.tail - l.head + nlen - 1) % nlen
+	basel = l.head
+	left := 0
+	for left <= right {
+		mid = left + ((right - left) >> 1)
+		tmid = (mid + basel + nlen) % nlen
+		if expiryTime.Before(l.items[tmid].recycleTime) {
+			right = mid - 1
+		} else {
+			left = mid + 1
+		}
+	}
+	return (right + basel + nlen) % nlen
 }
 
 func (l *loopQueue) reset() {
-	//TODO implement me
-	panic("implement me")
+	if l.isEmpty() {
+		return
+	}
+Releasing:
+	if w := l.detach(); w != nil {
+		w.task <- nil
+		goto Releasing
+	}
+	l.items = l.items[:0]
+	l.size, l.head, l.tail = 0, 0, 0
 }

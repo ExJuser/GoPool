@@ -189,29 +189,36 @@ func (p *Pool) Reboot() {
 
 func (p *Pool) retrieveWorker() (w *goWorker) {
 	spawnWorker := func() {
+		//从sync.Pool中获得一个worker
+		//可能会调用new方法新建一个 也可能是之前缓存的
 		w = p.workerCache.Get().(*goWorker)
 		w.run()
 	}
 	p.lock.Lock()
-	w = p.workers.detach()
-	if w != nil {
+	w = p.workers.detach() //尝试获取一个worker
+	if w != nil {          //成功获得 直接解锁返回
 		p.lock.Unlock()
 	} else if capacity := p.Cap(); capacity == -1 || capacity > p.Running() {
+		//如果容量无限或容量还没有满 可以调用spawnWorker获取一个
 		p.lock.Unlock()
 		spawnWorker()
-	} else {
-		if p.options.NonBlocking {
+	} else { //容量满了
+		if p.options.NonBlocking { //如果是非阻塞式的 不加入cond阻塞直接返回
 			p.lock.Unlock()
 			return
 		}
 	retry:
+		//如果当前正在等待的协程数量超过了限额 直接返回
 		if p.options.MaxBlockingTasks != 0 && p.Waiting() >= p.options.MaxBlockingTasks {
 			p.lock.Unlock()
 			return
 		}
+
 		p.addWaiting(1)
-		p.cond.Wait()
+		p.cond.Wait() //加入阻塞
+		//到这一行就意味着已经被signal或broadcast唤醒
 		p.addWaiting(-1)
+		//关闭协程池也会唤醒被阻塞的worker
 		if p.IsClosed() {
 			p.lock.Unlock()
 			return

@@ -150,6 +150,23 @@ func (p *Pool) Release() {
 	p.cond.Broadcast()
 }
 
+func (p *Pool) ReleaseTimeout(timeout time.Duration) error {
+	if p.IsClosed() || p.stopHeartBeat == nil {
+		return ErrPoolClosed
+	}
+	p.stopHeartBeat()
+	p.stopHeartBeat = nil
+	p.Release()
+	endTime := time.Now().Add(timeout)
+	for time.Now().Before(endTime) {
+		if p.Running() == 0 && atomic.LoadInt32(&p.heartbeatDone) == 1 {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return ErrTimeout
+}
+
 func (p *Pool) IsClosed() bool {
 	return atomic.LoadInt32(&p.state) == CLOSED
 }

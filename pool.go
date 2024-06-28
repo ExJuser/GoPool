@@ -187,9 +187,71 @@ func (p *Pool) Reboot() {
 	}
 }
 
-func retrieveWorker() (w *goWorker) {
-	panic("not implemented")
+func (p *Pool) retrieveWorker() (w *goWorker) {
+	spawnWorker := func() {
+		w = p.workerCache.Get().(*goWorker)
+		w.run()
+	}
+	p.lock.Lock()
+	w = p.workers.detach()
+	if w != nil {
+		p.lock.Unlock()
+	} else if capacity := p.Cap(); capacity == -1 || capacity > p.Running() {
+		p.lock.Unlock()
+		spawnWorker()
+	} else {
+		if p.options.NonBlocking {
+			p.lock.Unlock()
+			return
+		}
+	retry:
+		if p.options.MaxBlockingTasks != 0 && p.Waiting() >= p.options.MaxBlockingTasks {
+			p.lock.Unlock()
+			return
+		}
+		p.addWaiting(1)
+		p.cond.Wait()
+		p.addWaiting(-1)
+		if p.IsClosed() {
+			p.lock.Unlock()
+			return
+		}
+		var nw int
+		if nw = p.Running(); nw == 0 {
+			p.lock.Unlock()
+			spawnWorker()
+			return
+		}
+		if w = p.workers.detach(); w == nil {
+			if nw < p.Cap() {
+				p.lock.Unlock()
+				spawnWorker()
+				return
+			}
+			goto retry
+		}
+		p.lock.Unlock()
+	}
+	return
 }
-func revertWorker(worker *goWorker) bool {
-	panic("not implemented")
+func (p *Pool) revertWorker(worker *goWorker) bool {
+	if capacity := p.Cap(); (capacity > 0 && p.Running() > capacity) || p.IsClosed() {
+		p.cond.Broadcast()
+		return false
+	}
+	worker.recycleTime = time.Now()
+	p.lock.Lock()
+
+	if p.IsClosed() {
+		p.lock.Unlock()
+		return false
+	}
+	err := p.workers.insert(worker)
+	if err != nil {
+		p.lock.Unlock()
+		return false
+	}
+	p.cond.Signal()
+	p.lock.Unlock()
+	return true
 }

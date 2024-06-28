@@ -26,14 +26,19 @@ const (
 var (
 	//ErrLackPoolFunc 没有提供待执行的函数
 	ErrLackPoolFunc = errors.New("must provide function for pool")
+
 	//ErrInvalidPoolExpiry 过期时间为负
 	ErrInvalidPoolExpiry = errors.New("invalid expiry for pool")
+
 	//ErrPoolClosed 向已经关闭的协程池提交任务
 	ErrPoolClosed = errors.New("this pool has been closed")
+
 	//ErrPoolOverload  协程池已满
 	ErrPoolOverload = errors.New("too many goroutines blocked on submit or NonBlocking is set")
+
 	//ErrInvalidPreAllocSize 预分配空间大小为负
 	ErrInvalidPreAllocSize = errors.New("can not set up a negative capacity under PreAlloc mode")
+
 	//ErrTimeout 操作超时
 	ErrTimeout = errors.New("operation timed out")
 )
@@ -45,7 +50,9 @@ var (
 		}
 		return 1
 	}
+
 	defaultLogger = Logger(log.New(os.Stderr, "", log.LstdFlags))
+
 	//默认提供的协程池
 	defaultGoPool, _ = NewPool(DefaultGoPoolSize)
 )

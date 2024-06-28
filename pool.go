@@ -5,6 +5,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Pool struct {
@@ -68,6 +69,34 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 	return p, nil
 }
 
+func (p *Pool) purgePeriodically(ctx context.Context) {
+	heartbeat := time.NewTicker(p.options.ExpiryDuration)
+	defer func() {
+		heartbeat.Stop()
+		atomic.StoreInt32(&p.heartbeatDone, 1)
+	}()
+	for {
+		select {
+		case <-heartbeat.C:
+		case <-ctx.Done():
+			return
+		}
+		if p.IsClosed() {
+			break
+		}
+		p.lock.Lock()
+		expiredWorkers := p.workers.retrieveExpiry(p.options.ExpiryDuration)
+		p.lock.Unlock()
+		for i := range expiredWorkers {
+			expiredWorkers[i].task = nil
+			expiredWorkers[i] = nil
+		}
+		if p.Running() == 0 || (p.Waiting() > 0 && p.Free() > 0) {
+			p.cond.Broadcast()
+		}
+	}
+}
+
 func (p *Pool) Submit(task func()) error {
 	if p.IsClosed() {
 		return ErrPoolClosed
@@ -77,11 +106,23 @@ func (p *Pool) Submit(task func()) error {
 func (p *Pool) Running() int {
 	return int(atomic.LoadInt32(&p.running))
 }
-func (p *Pool) IsClosed() bool {
-	return atomic.LoadInt32(&p.state) == CLOSED
+func (p *Pool) Waiting() int {
+	return int(atomic.LoadInt32(&p.waiting))
+}
+func (p *Pool) Free() int {
+
+	if c := p.Cap(); c < 0 {
+		return -1
+	} else {
+		return c - p.Running()
+	}
 }
 func (p *Pool) Cap() int {
 	return int(atomic.LoadInt32(&p.capacity))
+}
+
+func (p *Pool) IsClosed() bool {
+	return atomic.LoadInt32(&p.state) == CLOSED
 }
 
 func (p *Pool) addWaiting(delta int) {

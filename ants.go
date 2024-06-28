@@ -60,3 +60,22 @@ var (
 type Logger interface {
 	Printf(format string, args ...interface{})
 }
+
+func Submit(task func()) error {
+	return defaultGoPool.Submit(task)
+}
+func Running() int {
+	return defaultGoPool.Running()
+}
+func Cap() int {
+	return defaultGoPool.Cap()
+}
+func Free() int {
+	return defaultGoPool.Free()
+}
+func Release() {
+	defaultGoPool.Release()
+}
+func Reboot() {
+	defaultGoPool.Reboot()
+}

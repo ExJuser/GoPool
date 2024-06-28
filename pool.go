@@ -101,6 +101,12 @@ func (p *Pool) Submit(task func()) error {
 	if p.IsClosed() {
 		return ErrPoolClosed
 	}
+	var w *goWorker
+	if w = p.retrieveWorker(); w == nil {
+		return ErrPoolOverload
+	}
+	w.task <- task
+	return nil
 }
 
 func (p *Pool) Running() int {
@@ -130,4 +136,13 @@ func (p *Pool) addWaiting(delta int) {
 }
 func (p *Pool) addRunning(delta int) {
 	atomic.AddInt32(&p.running, int32(delta))
+}
+
+func (p *Pool) Reboot() {
+	if atomic.CompareAndSwapInt32(&p.state, CLOSED, OPENED) {
+		atomic.StoreInt32(&p.heartbeatDone, 0)
+		var ctx context.Context
+		ctx, p.stopHeartBeat = context.WithCancel(context.Background())
+		go p.purgePeriodically(ctx)
+	}
 }

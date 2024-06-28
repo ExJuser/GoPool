@@ -116,7 +116,6 @@ func (p *Pool) Waiting() int {
 	return int(atomic.LoadInt32(&p.waiting))
 }
 func (p *Pool) Free() int {
-
 	if c := p.Cap(); c < 0 {
 		return -1
 	} else {
@@ -125,6 +124,30 @@ func (p *Pool) Free() int {
 }
 func (p *Pool) Cap() int {
 	return int(atomic.LoadInt32(&p.capacity))
+}
+
+func (p *Pool) Tune(size int) {
+	capacity := p.Cap()
+	if capacity == -1 || size <= 0 || size == capacity || p.options.PreAlloc {
+		return
+	}
+	if size > capacity {
+		if size-capacity == 1 {
+			p.cond.Signal()
+			return
+		}
+		p.cond.Broadcast()
+	}
+}
+
+func (p *Pool) Release() {
+	if !atomic.CompareAndSwapInt32(&p.state, OPENED, CLOSED) {
+		return
+	}
+	p.lock.Lock()
+	p.workers.reset()
+	p.lock.Unlock()
+	p.cond.Broadcast()
 }
 
 func (p *Pool) IsClosed() bool {

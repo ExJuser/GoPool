@@ -248,7 +248,6 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 	}
 	worker.recycleTime = time.Now()
 	p.lock.Lock()
-
 	if p.IsClosed() {
 		p.lock.Unlock()
 		return false

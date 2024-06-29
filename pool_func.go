@@ -113,6 +113,11 @@ func (p *PoolWithFunc) Invoke(args interface{}) error {
 		return ErrPoolClosed
 	}
 	var w *goWorkerWithFunc
+	if w = p.retrieveWorker(); w == nil {
+		return ErrPoolOverload
+	}
+	w.args <- args
+	return nil
 }
 
 func (p *PoolWithFunc) Running() int {
@@ -151,6 +156,53 @@ func (p *PoolWithFunc) Reboot() {
 		ctx, p.stopHeartbeat = context.WithCancel(context.Background())
 		go p.purgePeriodically(ctx)
 	}
+}
+
+func (p *PoolWithFunc) Tune(size int) {
+	capacity := p.Cap()
+	if capacity == -1 || size <= 0 || size == capacity || p.options.PreAlloc {
+		return
+	}
+	atomic.StoreInt32(&p.capacity, int32(size))
+	if size > capacity {
+		if size-capacity == 1 {
+			p.cond.Signal()
+			return
+		}
+		p.cond.Broadcast()
+	}
+}
+
+func (p *PoolWithFunc) Release() {
+	if !atomic.CompareAndSwapInt32(&p.state, OPENED, CLOSED) {
+		return
+	}
+	p.lock.Lock()
+	idleWorkers := p.workers
+	for _, w := range idleWorkers {
+		w.args <- nil
+	}
+	p.workers = nil
+	p.lock.Unlock()
+	p.cond.Broadcast()
+}
+
+func (p *PoolWithFunc) ReleaseTimeout(timeout time.Duration) error {
+	if p.IsClosed() || p.stopHeartbeat == nil {
+		return ErrPoolClosed
+	}
+	p.stopHeartbeat()
+	p.stopHeartbeat = nil
+	p.Release()
+
+	endTime := time.Now().Add(timeout)
+	for time.Now().Before(endTime) {
+		if p.Running() == 0 && atomic.LoadInt32(&p.heartbeatDone) == 1 {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return ErrTimeout
 }
 
 func (p *PoolWithFunc) retrieveWorker() (w *goWorkerWithFunc) {

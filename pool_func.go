@@ -144,6 +144,15 @@ func (p *PoolWithFunc) addWaiting(delta int) {
 	atomic.AddInt32(&p.waiting, int32(delta))
 }
 
+func (p *PoolWithFunc) Reboot() {
+	if atomic.CompareAndSwapInt32(&p.state, CLOSED, OPENED) {
+		atomic.StoreInt32(&p.heartbeatDone, 0)
+		var ctx context.Context
+		ctx, p.stopHeartbeat = context.WithCancel(context.Background())
+		go p.purgePeriodically(ctx)
+	}
+}
+
 func (p *PoolWithFunc) retrieveWorker() (w *goWorkerWithFunc) {
 	spawnWorker := func() {
 		w = p.workerCache.Get().(*goWorkerWithFunc)
@@ -162,11 +171,6 @@ func (p *PoolWithFunc) retrieveWorker() (w *goWorkerWithFunc) {
 		p.lock.Unlock()
 		spawnWorker()
 	} else {
-		if p.options.NonBlocking {
-			p.lock.Unlock()
-			return
-		}
-	} else{
 		if p.options.NonBlocking {
 			p.lock.Unlock()
 			return

@@ -45,7 +45,7 @@ func (l *loopQueue) insert(worker *goWorker) error {
 	if l.isFull {
 		return errQueueIsFull
 	}
-	// 将工作者插入尾部 并移动末尾
+	// 将Worker插入尾部 并移动末尾
 	l.items[l.tail] = worker
 	l.tail++
 	if l.tail == l.size { //如果尾部到达队列末端重置到起始位置
@@ -99,7 +99,7 @@ func (l *loopQueue) retrieveExpiry(duration time.Duration) []*goWorker {
 	head := (index + 1) % l.size
 	l.head = head
 	if len(l.expiry) > 0 {
-		l.isFull = false // 有过期工作者时队列不满
+		l.isFull = false // 有过期Worker时队列不满
 	}
 	return l.expiry
 }

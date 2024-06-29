@@ -108,6 +108,12 @@ func NewPoolWithFunc(size int, pf func(interface{}), options ...Option) (*PoolWi
 	go p.purgePeriodically(ctx)
 	return p, nil
 }
+func (p *PoolWithFunc) Invoke(args interface{}) error {
+	if p.IsClosed() {
+		return ErrPoolClosed
+	}
+	var w *goWorkerWithFunc
+}
 
 func (p *PoolWithFunc) Running() int {
 	return int(atomic.LoadInt32(&p.running))
@@ -128,4 +134,96 @@ func (p *PoolWithFunc) Free() int {
 
 func (p *PoolWithFunc) IsClosed() bool {
 	return atomic.LoadInt32(&p.state) == CLOSED
+}
+
+func (p *PoolWithFunc) addRunning(delta int) {
+	atomic.AddInt32(&p.running, int32(delta))
+}
+
+func (p *PoolWithFunc) addWaiting(delta int) {
+	atomic.AddInt32(&p.waiting, int32(delta))
+}
+
+func (p *PoolWithFunc) retrieveWorker() (w *goWorkerWithFunc) {
+	spawnWorker := func() {
+		w = p.workerCache.Get().(*goWorkerWithFunc)
+		w.run()
+	}
+
+	p.lock.Lock()
+	idleWorkers := p.workers
+	n := len(idleWorkers) - 1
+	if n >= 0 {
+		w = idleWorkers[n]
+		idleWorkers[n] = nil
+		p.workers = idleWorkers[:n]
+		p.lock.Unlock()
+	} else if capacity := p.Cap(); capacity == -1 || capacity > p.Running() {
+		p.lock.Unlock()
+		spawnWorker()
+	} else {
+		if p.options.NonBlocking {
+			p.lock.Unlock()
+			return
+		}
+	} else{
+		if p.options.NonBlocking {
+			p.lock.Unlock()
+			return
+		}
+	retry:
+		if p.options.MaxBlockingTasks != 0 && p.Waiting() >= p.options.MaxBlockingTasks {
+			p.lock.Unlock()
+			return
+		}
+		p.addWaiting(1)
+		p.cond.Wait()
+		p.addWaiting(-1)
+
+		if p.IsClosed() {
+			p.lock.Unlock()
+			return
+		}
+
+		var nw int
+		if nw = p.Running(); nw == 0 {
+			p.lock.Unlock()
+			spawnWorker()
+			return
+		}
+		l := len(p.workers) - 1
+		if l < 0 {
+			if nw < p.Cap() {
+				p.lock.Unlock()
+				spawnWorker()
+				return
+			}
+			goto retry
+		}
+		w = p.workers[l]
+		p.workers[l] = nil
+		p.workers = p.workers[:l]
+		p.lock.Unlock()
+	}
+	return
+}
+
+func (p *PoolWithFunc) revertWorker(worker *goWorkerWithFunc) bool {
+	if capacity := p.Cap(); (capacity > 0 && p.Running() > capacity) || p.IsClosed() {
+		p.cond.Broadcast()
+		return false
+	}
+	worker.recycleTime = time.Now()
+	p.lock.Lock()
+
+	if p.IsClosed() {
+		p.lock.Unlock()
+		return false
+	}
+
+	p.workers = append(p.workers, worker)
+
+	p.cond.Signal()
+	p.lock.Unlock()
+	return true
 }

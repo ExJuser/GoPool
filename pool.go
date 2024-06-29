@@ -60,12 +60,14 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 	} else {
 		p.workers = newWorkerArray(stackType, 0)
 	}
+
 	p.cond = sync.NewCond(p.lock)
 
 	//启动一个守护协程周期性的清理过期的worker
 	var ctx context.Context
 	ctx, p.stopHeartBeat = context.WithCancel(context.Background())
 	go p.purgePeriodically(ctx)
+
 	return p, nil
 }
 
@@ -75,6 +77,7 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 		heartbeat.Stop()
 		atomic.StoreInt32(&p.heartbeatDone, 1)
 	}()
+
 	for {
 		select {
 		case <-heartbeat.C:
@@ -87,10 +90,12 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 		p.lock.Lock()
 		expiredWorkers := p.workers.retrieveExpiry(p.options.ExpiryDuration)
 		p.lock.Unlock()
+
 		for i := range expiredWorkers {
-			expiredWorkers[i].task = nil
+			expiredWorkers[i].task <- nil
 			expiredWorkers[i] = nil
 		}
+
 		if p.Running() == 0 || (p.Waiting() > 0 && p.Free() > 0) {
 			p.cond.Broadcast()
 		}
@@ -116,11 +121,11 @@ func (p *Pool) Waiting() int {
 	return int(atomic.LoadInt32(&p.waiting))
 }
 func (p *Pool) Free() int {
-	if c := p.Cap(); c < 0 {
+	var c int
+	if c = p.Cap(); c < 0 {
 		return -1
-	} else {
-		return c - p.Running()
 	}
+	return c - p.Running()
 }
 func (p *Pool) Cap() int {
 	return int(atomic.LoadInt32(&p.capacity))
@@ -131,6 +136,7 @@ func (p *Pool) Tune(size int) {
 	if capacity == -1 || size <= 0 || size == capacity || p.options.PreAlloc {
 		return
 	}
+	atomic.StoreInt32(&p.capacity, int32(size))
 	if size > capacity {
 		if size-capacity == 1 {
 			p.cond.Signal()
@@ -157,6 +163,7 @@ func (p *Pool) ReleaseTimeout(timeout time.Duration) error {
 	p.stopHeartBeat()
 	p.stopHeartBeat = nil
 	p.Release()
+
 	endTime := time.Now().Add(timeout)
 	for time.Now().Before(endTime) {
 		if p.Running() == 0 && atomic.LoadInt32(&p.heartbeatDone) == 1 {
@@ -194,7 +201,9 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 		w = p.workerCache.Get().(*goWorker)
 		w.run()
 	}
+
 	p.lock.Lock()
+
 	w = p.workers.detach() //尝试获取一个worker
 	if w != nil {          //成功获得 直接解锁返回
 		p.lock.Unlock()

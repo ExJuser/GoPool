@@ -39,10 +39,12 @@ func (w *goWorker) run() {
 		}()
 		//不断遍历channel 等待新投递过来的任务
 		for f := range w.task {
+			//投递一个nil的任务意味着该worker任务完成 可以被放回workerCache回收/复用
 			if f == nil {
 				return
 			}
 			f()
+			//执行完一个任务之后就放回 等待Submit的新任务
 			if ok := w.pool.revertWorker(w); !ok {
 				return
 			}

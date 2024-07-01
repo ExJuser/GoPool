@@ -9,14 +9,19 @@ import (
 )
 
 type PoolWithFunc struct {
-	capacity      int32
-	running       int32
-	lock          sync.Locker
-	workers       []*goWorkerWithFunc
-	state         int32
-	cond          *sync.Cond
-	poolFunc      func(interface{})
-	workerCache   sync.Pool
+	//协程池的容量，负值意味着容量无上限
+	capacity int32
+	//当前正在运行的协程数量
+	running int32
+	//保护并发访问的锁 采用动态退避的自旋锁
+	lock sync.Locker
+	//存储可用worker的集合
+	workers     []*goWorkerWithFunc
+	state       int32
+	cond        *sync.Cond
+	poolFunc    func(interface{})
+	workerCache sync.Pool
+	//被阻塞在等待可用worker的协程数量
 	waiting       int32
 	heartbeatDone int32
 	stopHeartbeat context.CancelFunc
@@ -77,7 +82,7 @@ func NewPoolWithFunc(size int, pf func(interface{}), options ...Option) (*PoolWi
 	if expiry := opts.ExpiryDuration; expiry < 0 {
 		return nil, ErrInvalidPoolExpiry
 	} else if expiry == 0 {
-		opts.ExpiryDuration = DefaultCleanIntervalTime
+		opts.ExpiryDuration = DefaultExpiryDuration
 	}
 
 	if opts.Logger == nil {

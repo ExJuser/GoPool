@@ -29,21 +29,23 @@ type Pool struct {
 
 func NewPool(size int, options ...Option) (*Pool, error) {
 	opts := loadOptions(options...)
-	if size <= 0 {
+	if size <= 0 { //负数size均认为是容量无上限
 		size = -1
 	}
+
+	//过期时间不能为负
 	if expiry := opts.ExpiryDuration; expiry < 0 {
 		return nil, ErrInvalidPoolExpiry
-	} else if expiry == 0 {
-		opts.ExpiryDuration = DefaultCleanIntervalTime
+	} else if expiry == 0 { //使用默认的过期时间
+		opts.ExpiryDuration = DefaultExpiryDuration
 	}
 
-	if opts.Logger == nil {
+	if opts.Logger == nil { //使用默认Logger
 		opts.Logger = defaultLogger
 	}
 	p := &Pool{
 		capacity: int32(size),
-		lock:     internal.NewSpinLockBackoff(),
+		lock:     internal.NewSpinLockBackoff(), //默认使用带指数退避的自旋锁
 		options:  opts,
 	}
 	p.workerCache.New = func() any {
@@ -57,13 +59,13 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 			return nil, ErrInvalidPreAllocSize
 		}
 		p.workers = newWorkerArray(loopQueueType, size)
-	} else {
+	} else { //不使用预分配模式默认使用栈实现
 		p.workers = newWorkerArray(stackType, 0)
 	}
 
 	p.cond = sync.NewCond(p.lock)
 
-	//启动一个守护协程周期性的清理过期的worker
+	//启动一个守护协程周期性的清理过期的worker直到心跳停止
 	var ctx context.Context
 	ctx, p.stopHeartBeat = context.WithCancel(context.Background())
 	go p.purgePeriodically(ctx)
@@ -80,7 +82,7 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 
 	for {
 		select {
-		case <-heartbeat.C:
+		case <-heartbeat.C: //每隔p.options.ExpiryDuration时间启动一次清理过程
 		case <-ctx.Done():
 			return
 		}
@@ -88,14 +90,17 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 			break
 		}
 		p.lock.Lock()
+		//去除已经有p.options.ExpiryDuration未被使用的worker
 		expiredWorkers := p.workers.retrieveExpiry(p.options.ExpiryDuration)
 		p.lock.Unlock()
 
+		//遍历这些过期worker并将其清理器内存
 		for i := range expiredWorkers {
 			expiredWorkers[i].task <- nil
 			expiredWorkers[i] = nil
 		}
 
+		//p.Running() == 0: 如果所有的worker都被过期清理
 		if p.Running() == 0 || (p.Waiting() > 0 && p.Free() > 0) {
 			p.cond.Broadcast()
 		}
@@ -107,16 +112,21 @@ func (p *Pool) Submit(task func()) error {
 		return ErrPoolClosed
 	}
 	var w *goWorker
+	//获取一个worker
 	if w = p.retrieveWorker(); w == nil {
 		return ErrPoolOverload
 	}
+	//并将任务塞给它
 	w.task <- task
 	return nil
 }
 
+// Running 原子操作获取当前正在运行的worker
 func (p *Pool) Running() int {
 	return int(atomic.LoadInt32(&p.running))
 }
+
+// Waiting 原子操作获取当前正在等待的goroutine
 func (p *Pool) Waiting() int {
 	return int(atomic.LoadInt32(&p.waiting))
 }
@@ -217,14 +227,15 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 			return
 		}
 	retry:
-		//如果当前正在等待的协程数量超过了限额 直接返回
+		//到这里意味着容量已满而且协程池是阻塞式的 需要阻塞等待
+		//但是如果当前正在等待的协程数量已经超过了限额 直接返回
 		if p.options.MaxBlockingTasks != 0 && p.Waiting() >= p.options.MaxBlockingTasks {
 			p.lock.Unlock()
 			return
 		}
-
+		//加入阻塞等待
 		p.addWaiting(1)
-		p.cond.Wait() //加入阻塞
+		p.cond.Wait()
 		//到这一行就意味着已经被signal或broadcast唤醒
 		p.addWaiting(-1)
 		//关闭协程池也会唤醒被阻塞的worker
@@ -233,23 +244,29 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 			return
 		}
 		var nw int
+		//如果所有的worker都被过期清理了
 		if nw = p.Running(); nw == 0 {
 			p.lock.Unlock()
+			//获取一个worker
 			spawnWorker()
 			return
 		}
+		//再次尝试获取一个worker 如果还是没有成功
 		if w = p.workers.detach(); w == nil {
-			if nw < p.Cap() {
+			if nw < p.Cap() { //还没有到达容量上限
 				p.lock.Unlock()
 				spawnWorker()
 				return
 			}
+			//否则继续尝试获取
 			goto retry
 		}
 		p.lock.Unlock()
 	}
 	return
 }
+
+// revertWorker 将使用完成的worker放回worker队列
 func (p *Pool) revertWorker(worker *goWorker) bool {
 	if capacity := p.Cap(); (capacity > 0 && p.Running() > capacity) || p.IsClosed() {
 		p.cond.Broadcast()

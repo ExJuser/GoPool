@@ -12,8 +12,8 @@ import (
 const (
 	// DefaultGoPoolSize 默认协程池容量
 	DefaultGoPoolSize = math.MaxInt32
-	// DefaultCleanIntervalTime 默认协程清理的间隔
-	DefaultCleanIntervalTime = time.Second
+	// DefaultExpiryDuration 默认协程清理的间隔
+	DefaultExpiryDuration = time.Second
 )
 
 // 指示协程池的开启关闭状态
@@ -36,7 +36,7 @@ var (
 	//ErrPoolOverload  协程池已满
 	ErrPoolOverload = errors.New("too many goroutines blocked on submit or NonBlocking is set")
 
-	//ErrInvalidPreAllocSize 预分配空间大小为负
+	//ErrInvalidPreAllocSize 预分配空间模式下使用循环队列，不允许容量无上限
 	ErrInvalidPreAllocSize = errors.New("can not set up a negative capacity under PreAlloc mode")
 
 	//ErrTimeout 操作超时

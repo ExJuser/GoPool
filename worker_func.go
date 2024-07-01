@@ -15,6 +15,7 @@ func (w *goWorkerWithFunc) run() {
 	w.pool.addRunning(1)
 	go func() {
 		defer func() {
+			//只有被传入了nil任务才会-1
 			w.pool.addRunning(-1)
 			w.pool.workerCache.Put(w)
 			if p := recover(); p != nil {

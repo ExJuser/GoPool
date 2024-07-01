@@ -96,6 +96,7 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 
 		//遍历这些过期worker并将其清理器内存
 		for i := range expiredWorkers {
+			//传入nil任务 => worker.go:run():defer
 			expiredWorkers[i].task <- nil
 			expiredWorkers[i] = nil
 		}

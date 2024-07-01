@@ -34,6 +34,8 @@ func BenchmarkGoPool(b *testing.B) {
 	wg := sync.WaitGroup{}
 	pool, _ := NewPool(BenchPoolSize, WithExpiryDuration(DefaultExpiredTime))
 	defer pool.Release()
+
+	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		wg.Add(RunTimes)
 		for j := 0; j < RunTimes; j++ {
@@ -57,6 +59,8 @@ func BenchmarkGoroutinesThroughput(b *testing.B) {
 
 func BenchmarkGoPoolThroughput(b *testing.B) {
 	pool, _ := NewPool(DefaultGoPoolSize, WithExpiryDuration(DefaultExpiredTime))
+	defer pool.Release()
+	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < RunTimes; j++ {
 			_ = pool.Submit(demoFunc)

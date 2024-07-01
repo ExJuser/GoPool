@@ -16,6 +16,10 @@ const (
 func demoFunc() {
 	time.Sleep(time.Duration(BenchParam) * time.Millisecond)
 }
+func demoPoolFunc(args interface{}) {
+	n := args.(int)
+	time.Sleep(time.Duration(n) * time.Millisecond)
+}
 func BenchmarkGoroutines(b *testing.B) {
 	wg := sync.WaitGroup{}
 	for i := 0; i < b.N; i++ {

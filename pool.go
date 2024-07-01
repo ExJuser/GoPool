@@ -130,6 +130,13 @@ func (p *Pool) Running() int {
 func (p *Pool) Waiting() int {
 	return int(atomic.LoadInt32(&p.waiting))
 }
+
+// Cap 原子操作获取协程池容量
+func (p *Pool) Cap() int {
+	return int(atomic.LoadInt32(&p.capacity))
+}
+
+// Free 原子操作获取空闲（可能已经被回收 指还能多存在多少个worker）的worker
 func (p *Pool) Free() int {
 	var c int
 	if c = p.Cap(); c < 0 {
@@ -137,17 +144,22 @@ func (p *Pool) Free() int {
 	}
 	return c - p.Running()
 }
-func (p *Pool) Cap() int {
-	return int(atomic.LoadInt32(&p.capacity))
-}
 
+// Tune 动态调整协程池容量
 func (p *Pool) Tune(size int) {
 	capacity := p.Cap()
+	/**
+	在以下情况下无需操作：
+		1.容量已经为负（无上限） 不允许将容量调小
+		2.size与原容量相同
+		3.使用了预分配模式（循环队列），不允许调整
+	*/
 	if capacity == -1 || size <= 0 || size == capacity || p.options.PreAlloc {
 		return
 	}
 	atomic.StoreInt32(&p.capacity, int32(size))
-	if size > capacity {
+	//容量变大需要唤醒正在等待的goroutine
+	if p.Waiting() > 0 && size > capacity {
 		if size-capacity == 1 {
 			p.cond.Signal()
 			return
@@ -156,13 +168,17 @@ func (p *Pool) Tune(size int) {
 	}
 }
 
+// Release 关闭协程池并清空worker队列
 func (p *Pool) Release() {
+	//标记协程池关闭
 	if !atomic.CompareAndSwapInt32(&p.state, OPENED, CLOSED) {
 		return
 	}
+	//清空worker队列
 	p.lock.Lock()
 	p.workers.reset()
 	p.lock.Unlock()
+	//如果还有正在等待的worker 将其唤醒
 	p.cond.Broadcast()
 }
 

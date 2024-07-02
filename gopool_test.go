@@ -124,3 +124,75 @@ func TestGoPoolGetWorkerFromCache(t *testing.T) {
 	//应该是1 从workerCache中取出
 	t.Logf("memory usage:%d MB", curMem)
 }
+
+func TestGoPoolWithFuncGetWorkerFromCache(t *testing.T) {
+	dur := 10
+	p, _ := NewPoolWithFunc(TestSize, demoPoolFunc)
+	defer p.Release()
+
+	for i := 0; i < PoolSize; i++ {
+		_ = p.Invoke(dur)
+	}
+	time.Sleep(2 * DefaultExpiryDuration)
+	_ = p.Invoke(dur)
+	t.Logf("num of current running workers:%d", p.running)
+	mem := runtime.MemStats{}
+	runtime.ReadMemStats(&mem)
+	curMem = mem.TotalAlloc/MiB - curMem
+	t.Logf("memory usage:%d MB", curMem)
+}
+
+func TestGoPoolWithFuncGetWorkerFromCacheInPreAllocMode(t *testing.T) {
+	dur := 10
+	p, _ := NewPoolWithFunc(TestSize, demoPoolFunc, WithPreAlloc(true))
+	defer p.Release()
+
+	for i := 0; i < PoolSize; i++ {
+		_ = p.Invoke(dur)
+	}
+	time.Sleep(2 * DefaultExpiryDuration)
+	_ = p.Invoke(dur)
+	t.Logf("num of current running workers:%d", p.running)
+	mem := runtime.MemStats{}
+	runtime.ReadMemStats(&mem)
+	curMem = mem.TotalAlloc/MiB - curMem
+	t.Logf("memory usage:%d MB", curMem)
+}
+
+func TestNativeGoroutines(t *testing.T) {
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			demoFunc()
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	mem := runtime.MemStats{}
+	runtime.ReadMemStats(&mem)
+	curMem = mem.TotalAlloc/MiB - curMem
+	t.Logf("memory usage:%d MB", curMem)
+}
+
+func TestGoPool(t *testing.T) {
+	defer Release()
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		_ = Submit(func() {
+			demoFunc()
+			wg.Done()
+		})
+	}
+	wg.Wait()
+
+	t.Logf("Capacity of the Pool:%d", Cap())
+	t.Logf("Num of running workers:%d", Running())
+	t.Logf("Num of free workers:%d", Free())
+	mem := runtime.MemStats{}
+	runtime.ReadMemStats(&mem)
+	curMem = mem.TotalAlloc/MiB - curMem
+	t.Logf("memory usage:%d MB", curMem)
+}

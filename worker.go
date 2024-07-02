@@ -22,7 +22,7 @@ func (w *goWorker) run() {
 			w.pool.addRunning(-1)
 			//将worker放回sync.Pool
 			w.pool.workerCache.Put(w)
-			//如果run过程中出现panic 捕获
+			//捕获run过程中出现的panic
 			if p := recover(); p != nil {
 				//调用自定义的PanicHandler
 				if ph := w.pool.options.PanicHandler; ph != nil {

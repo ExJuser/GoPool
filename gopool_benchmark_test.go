@@ -27,6 +27,9 @@ func BenchmarkGoroutines(b *testing.B) {
 		for j := 0; j < RunTimes; j++ {
 			go func() {
 				demoFunc()
+				if j%1000 == 0 {
+					b.Logf("Goroutine %d finished.", j)
+				}
 				wg.Done()
 			}()
 		}
@@ -45,6 +48,9 @@ func BenchmarkGoPool(b *testing.B) {
 		for j := 0; j < RunTimes; j++ {
 			_ = pool.Submit(func() {
 				demoFunc()
+				if j%1000 == 0 {
+					b.Logf("GoPool %d finished.", j)
+				}
 				wg.Done()
 			})
 		}

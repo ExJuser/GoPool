@@ -161,7 +161,7 @@ func (p *Pool) Tune(size int) {
 	atomic.StoreInt32(&p.capacity, int32(size))
 	//容量变大需要唤醒正在等待的goroutine
 	if p.Waiting() > 0 && size > capacity {
-		if size-capacity == 1 {
+		if size-capacity == 1 { //只有一个空闲
 			p.cond.Signal()
 			return
 		}

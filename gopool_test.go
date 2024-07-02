@@ -1,8 +1,10 @@
 package GoPool
 
 import (
+	"github.com/stretchr/testify/assert"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -195,4 +197,41 @@ func TestGoPool(t *testing.T) {
 	runtime.ReadMemStats(&mem)
 	curMem = mem.TotalAlloc/MiB - curMem
 	t.Logf("memory usage:%d MB", curMem)
+}
+
+func TestPanicHandler(t *testing.T) {
+	var panicCount int64
+	wg := sync.WaitGroup{}
+	p, err := NewPool(10, WithPanicHandler(func(i interface{}) {
+		defer wg.Done()
+		atomic.AddInt64(&panicCount, 1)
+		t.Logf("catch panic with panic handler:%v", i)
+	}))
+	assert.NoErrorf(t, err, "new pool failed:%v", err)
+	defer p.Release()
+	wg.Add(1)
+	_ = p.Submit(func() {
+		panic("oops")
+	})
+	wg.Wait()
+	c := atomic.LoadInt64(&panicCount)
+	assert.EqualValuesf(t, 1, c, "panic handler misfunctions")
+	assert.EqualValuesf(t, 0, p.Running(), "there should be no worker running after panic")
+}
+
+func TestPanicHandlerWithFunc(t *testing.T) {
+	var panicCount int64
+	wg := sync.WaitGroup{}
+	p, _ := NewPoolWithFunc(10, demoPoolFunc, WithPanicHandler(func(i interface{}) {
+		defer wg.Done()
+		atomic.AddInt64(&panicCount, 1)
+		t.Logf("catch panic with panic handler:%v", i)
+	}))
+	defer p.Release()
+	wg.Add(1)
+	_ = p.Invoke("oops")
+	wg.Wait()
+	c := atomic.LoadInt64(&panicCount)
+	assert.EqualValuesf(t, 1, c, "panic handler misfunctions")
+	assert.EqualValuesf(t, 0, p.Running(), "there should be no worker running after panic")
 }

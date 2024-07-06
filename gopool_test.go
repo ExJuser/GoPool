@@ -293,3 +293,23 @@ func TestNonblockingSubmit(t *testing.T) {
 	<-ch1
 	assert.NoError(t, p.Submit(demoFunc), "nonblocking submit when pool is not full shouldn't return error")
 }
+
+func TestRebootDefaultPool(t *testing.T) {
+	defer Release()
+	Reboot()
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	_ = Submit(func() {
+		demoFunc()
+		wg.Done()
+	})
+	wg.Wait()
+	Release()
+	assert.EqualError(t, Submit(nil), ErrPoolClosed.Error(), "pool should be closed")
+	Reboot()
+	wg.Add(1)
+	assert.NoErrorf(t, Submit(func() {
+		wg.Done()
+	}), "pool should be rebooted")
+	wg.Wait()
+}

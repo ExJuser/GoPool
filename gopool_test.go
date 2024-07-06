@@ -29,6 +29,11 @@ const (
 
 var curMem uint64
 
+func longRunningFunc() {
+	for {
+		runtime.Gosched()
+	}
+}
 func TestGoPoolWaitingToRetrieveWorker(t *testing.T) {
 	wg := sync.WaitGroup{}
 	p, _ := NewPool(PoolSize)
@@ -234,4 +239,57 @@ func TestPanicHandlerWithFunc(t *testing.T) {
 	c := atomic.LoadInt64(&panicCount)
 	assert.EqualValuesf(t, 1, c, "panic handler misfunctions")
 	assert.EqualValuesf(t, 0, p.Running(), "there should be no worker running after panic")
+}
+func TestPurge(t *testing.T) {
+	p, err := NewPool(10)
+	assert.NoErrorf(t, err, "create TimingPool failed: %v", err)
+	defer p.Release()
+	_ = p.Submit(demoFunc)
+	time.Sleep(3 * DefaultExpiryDuration)
+	assert.EqualValues(t, 0, p.Running(), "all p should be purged")
+	p1, err := NewPoolWithFunc(10, demoPoolFunc)
+	assert.NoErrorf(t, err, "create TimingPoolWithFunc failed: %v", err)
+	defer p1.Release()
+	_ = p1.Invoke(1)
+	time.Sleep(3 * DefaultExpiryDuration)
+	assert.EqualValues(t, 0, p.Running(), "all p should be purged")
+}
+
+func TestPurgePreMalloc(t *testing.T) {
+	p, err := NewPool(10, WithPreAlloc(true))
+	assert.NoErrorf(t, err, "create TimingPool failed: %v", err)
+	defer p.Release()
+	_ = p.Submit(demoFunc)
+	time.Sleep(3 * DefaultExpiryDuration)
+	assert.EqualValues(t, 0, p.Running(), "all p should be purged")
+	p1, err := NewPoolWithFunc(10, demoPoolFunc)
+	assert.NoErrorf(t, err, "create TimingPoolWithFunc failed: %v", err)
+	defer p1.Release()
+	_ = p1.Invoke(1)
+	time.Sleep(3 * DefaultExpiryDuration)
+	assert.EqualValues(t, 0, p.Running(), "all p should be purged")
+}
+
+func TestNonblockingSubmit(t *testing.T) {
+	poolSize := 10
+	p, err := NewPool(poolSize, WithNonBlocking(true))
+	assert.NoErrorf(t, err, "create TimingPool failed: %v", err)
+	defer p.Release()
+	for i := 0; i < poolSize-1; i++ {
+		assert.NoError(t, p.Submit(longRunningFunc), "nonblocking submit when pool is not full shouldn't return error")
+	}
+	ch := make(chan struct{})
+	ch1 := make(chan struct{})
+	f := func() {
+		<-ch
+		close(ch1)
+	}
+	// p is full now.
+	assert.NoError(t, p.Submit(f), "nonblocking submit when pool is not full shouldn't return error")
+	assert.EqualError(t, p.Submit(demoFunc), ErrPoolOverload.Error(),
+		"nonblocking submit when pool is full should get an ErrPoolOverload")
+	// interrupt f to get an available worker
+	close(ch)
+	<-ch1
+	assert.NoError(t, p.Submit(demoFunc), "nonblocking submit when pool is not full shouldn't return error")
 }

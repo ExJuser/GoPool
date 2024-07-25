@@ -61,6 +61,9 @@ type Logger interface {
 	Printf(format string, args ...interface{})
 }
 
+//————————————————————————————————————————————
+//可以直接通过包名访问的方法 操作的是默认提供的协程池
+
 func Submit(task func()) error {
 	return defaultGoPool.Submit(task)
 }

@@ -23,6 +23,7 @@ func (l *spinLockBackoff) Lock() {
 		}
 		//不超过最大退避次数
 		if backoff < maxBackoff {
+			//指数退避
 			backoff <<= 1
 		}
 	}

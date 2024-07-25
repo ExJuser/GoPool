@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// Option 选项模式 为协程池提供可选参数
 type Option func(opts *Options)
 
 func loadOptions(options ...Option) *Options {

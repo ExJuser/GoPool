@@ -43,23 +43,28 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 	if opts.Logger == nil { //使用默认Logger
 		opts.Logger = defaultLogger
 	}
+
 	p := &Pool{
 		capacity: int32(size),
 		lock:     internal.NewSpinLockBackoff(), //默认使用带指数退避的自旋锁
-		options:  opts,
+		//可选参数作为字段传入
+		options: opts,
 	}
+
+	//sync.Pool中无Worker可取时的创建Worker方法
 	p.workerCache.New = func() any {
 		return &goWorker{
 			pool: p,
 			task: make(chan func(), workerChanCap()),
 		}
 	}
+
 	if p.options.PreAlloc {
 		if size == -1 {
 			return nil, ErrInvalidPreAllocSize
 		}
 		p.workers = newWorkerArray(loopQueueType, size)
-	} else { //不使用预分配模式默认使用栈实现
+	} else { //不使用预分配模式则默认使用栈实现
 		p.workers = newWorkerArray(stackType, 0)
 	}
 
@@ -74,6 +79,7 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 }
 
 func (p *Pool) purgePeriodically(ctx context.Context) {
+	//启动一个每 ExpiryDuration 触发一次的定时器实现定时清扫过期Worker
 	heartbeat := time.NewTicker(p.options.ExpiryDuration)
 	defer func() {
 		heartbeat.Stop()
@@ -82,10 +88,12 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 
 	for {
 		select {
-		case <-heartbeat.C: //每隔p.options.ExpiryDuration时间启动一次清理过程
+		//每隔p.options.ExpiryDuration时间启动一次清理过程
+		case <-heartbeat.C:
 		case <-ctx.Done():
 			return
 		}
+		//case <-heartbeat.C触发后走到这里
 		if p.IsClosed() {
 			break
 		}
@@ -94,7 +102,7 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 		expiredWorkers := p.workers.retrieveExpiry(p.options.ExpiryDuration)
 		p.lock.Unlock()
 
-		//遍历这些过期worker并将其清理器内存
+		//遍历这些过期worker并清理
 		for i := range expiredWorkers {
 			//传入nil任务 => worker.go:run():defer
 			expiredWorkers[i].task <- nil
@@ -110,11 +118,12 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 
 func (p *Pool) Submit(task func()) error {
 	if p.IsClosed() {
+		//向已经关闭的协程池提交任务
 		return ErrPoolClosed
 	}
 	var w *goWorker
 	//获取一个worker
-	if w = p.retrieveWorker(); w == nil {
+	if w = p.retrieveWorker(); w == nil { //协程池已满
 		return ErrPoolOverload
 	}
 	//并将任务塞给它
@@ -295,8 +304,7 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 		p.lock.Unlock()
 		return false
 	}
-	err := p.workers.insert(worker)
-	if err != nil {
+	if err := p.workers.insert(worker); err != nil {
 		p.lock.Unlock()
 		return false
 	}

@@ -162,11 +162,13 @@ func (p *Pool) Tune(size int) {
 	在以下情况下无需操作：
 		1.容量已经为负（无上限） 不允许将容量调小
 		2.size与原容量相同
-		3.使用了预分配模式（循环队列），不允许调整
+		3.使用了预分配模式（循环队列），因此不允许调整
+		4.size <= 0 为不合法操作
 	*/
 	if capacity == -1 || size <= 0 || size == capacity || p.options.PreAlloc {
 		return
 	}
+	//更新新的容量
 	atomic.StoreInt32(&p.capacity, int32(size))
 	//容量变大需要唤醒正在等待的goroutine
 	if p.Waiting() > 0 && size > capacity {
@@ -235,9 +237,11 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 		//从sync.Pool中获得一个worker
 		//可能会调用new方法新建一个 也可能是之前缓存的
 		w = p.workerCache.Get().(*goWorker)
+		//得到worker立刻将其启动
 		w.run()
 	}
 
+	//对worker队列的操作都需要加锁
 	p.lock.Lock()
 
 	w = p.workers.detach() //尝试获取一个worker

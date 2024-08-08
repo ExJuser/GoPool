@@ -302,6 +302,7 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 		p.cond.Broadcast()
 		return false
 	}
+	//记录worker复用时间 长时间没有使用的worker会被回收
 	worker.recycleTime = time.Now()
 	p.lock.Lock()
 	if p.IsClosed() {
